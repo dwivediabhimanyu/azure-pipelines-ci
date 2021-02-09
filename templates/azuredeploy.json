@@ -1,0 +1,129 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "ACGPlanName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ACGPlanSkuName": {
+      "type": "string",
+      "defaultValue": "S1",
+      "allowedValues": [
+        "F1",
+        "D1",
+        "B1",
+        "B2",
+        "B3",
+        "S1",
+        "S2",
+        "S3",
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ],
+      "metadata": {
+        "description": "Describes plan's pricing tier and capacity. Check details at https://azure.microsoft.com/en-us/pricing/details/app-service/"
+      }
+    }},
+  "variables": {
+    "alwaysOn": false,
+    "VnetName": "ACGVNet",
+    "ACGVnetPrefix": "10.0.0.0/16",
+    "ACGVnetSubnet1Name": "Subnet-1",
+    "ACGVnetSubnet1Prefix": "10.0.0.0/24",
+    "ACGAppName": "[concat('ACGApp-', uniqueString(resourceGroup().id))]",
+    "linuxFxVersion": "NODE|lts"
+  },
+  "resources": [
+    {
+      "name": "[variables('VnetName')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2018-11-01",
+      "dependsOn": [],
+      "tags": {
+        "displayName": "[variables('VnetName')]"
+      },
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('ACGVnetPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('ACGVnetSubnet1Name')]",
+            "properties": {
+              "addressPrefix": "[variables('ACGVnetSubnet1Prefix')]",
+              "delegations": [
+                {
+                  "name": "delegation",
+                  "properties": {
+                    "serviceName": "Microsoft.Web/serverFarms"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[parameters('ACGPlanName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "location": "[resourceGroup().location]",
+      "kind": "app,linux",
+      "apiVersion": "2018-02-01",
+      "sku": {
+        "name": "[parameters('ACGPlanSkuName')]"
+      },
+      "dependsOn": [],
+      "tags": {
+        "displayName": "ACGPlan"
+      },
+      "properties": {
+        "name": "[parameters('ACGPlanName')]",
+        "numberOfWorkers": 1,
+        "reserved": true
+      }
+    },
+    {
+      "name": "[variables('ACGAppName')]",
+      "type": "Microsoft.Web/sites",
+      "location": "[resourceGroup().location]",
+      "apiVersion": "2018-11-01",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', parameters('ACGPlanName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('VnetName'))]"
+      ],
+      "tags": {
+        "[concat('hidden-related:', resourceId('Microsoft.Web/serverfarms', parameters('ACGPlanName')))]": "Resource",
+        "displayName": "ACGApp"
+      },
+      "properties": {
+        "name": "[variables('ACGAppName')]",
+        "siteConfig": {
+          "linuxFxVersion": "[variables('linuxFxVersion')]",
+          "alwaysOn": "[variables('alwaysOn')]"
+        },
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('ACGPlanName'))]"
+      },
+      "resources": [
+        {
+          "name": "virtualNetwork",
+          "type": "config",
+          "apiVersion": "2018-11-01",
+          "dependsOn": [
+            "[resourceId('Microsoft.Web/sites', variables('ACGAppName'))]"
+          ],
+          "properties": {
+            "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('VnetName'), variables('ACGVnetSubnet1Name'))]",
+            "swiftSupported": true
+          }
+        }
+      ]
+    }],
+  "outputs": {}
+}
