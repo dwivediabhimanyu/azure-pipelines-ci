@@ -2,39 +2,44 @@
   "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "ACGPlanName": {
+    "AppName": {
       "type": "string",
-      "minLength": 1
+      "minLength": 2
     },
-    "ACGPlanSkuName": {
+    "EnvironmentName": {
       "type": "string",
-      "defaultValue": "S1",
-      "allowedValues": [
-        "F1",
-        "D1",
-        "B1",
-        "B2",
-        "B3",
-        "S1",
-        "S2",
-        "S3",
-        "P1",
-        "P2",
-        "P3",
-        "P4"
-      ],
+      "defaultValue": "dev",
+      "allowedValues": ["dev", "test", "prod"],
       "metadata": {
-        "description": "Describes plan's pricing tier and capacity. Check details at https://azure.microsoft.com/en-us/pricing/details/app-service/"
+        "description": "Application environment name. This will be used in naming resources."
+      }
+    },
+    "EnvironmentSize": {
+      "type": "string",
+      "defaultValue": "medium",
+      "allowedValues": ["medium", "large"],
+      "metadata": {
+        "description": "Medium for Testing/dev deployment, Large for production deployment"
       }
     }
   },
   "variables": {
+    "VnetName": "[toLower(concat('vnet-',parameters('EnvironmentName'),'-',resourceGroup().location,'-001'))]",
+    "VnetPrefix": "10.0.0.0/16",
+    "SubnetName": "[toLower(concat('snet-',parameters('EnvironmentName'),resourceGroup().location,'-001'))]",
+    "SubnetPrefix": "10.0.0.0/24",
+    "ServicePlanName": "[tolower(concat(parameters('AppName'),'-plan'))]",
+    "EnvSize": {
+      "medium": {
+        "Size": "S1"
+      },
+      "large": {
+        "Size": "P1"
+      }
+    },
+    "AppName": "[concat(parameters('AppName'), uniqueString(resourceGroup().id))]",
+    "WebAppName": "[tolower(concat('app-',variables('AppName'),'-',parameters('EnvironmentName')))]",
     "alwaysOn": false,
-    "VnetName": "ACGVNet",
-    "ACGVnetPrefix": "10.0.0.0/16",
-    "ACGVnetSubnet1Name": "Subnet-1",
-    "ACGVnetSubnet1Prefix": "10.0.0.0/24",
-    "ACGAppName": "[concat('ACGApp-', uniqueString(resourceGroup().id))]",
     "linuxFxVersion": "NODE|lts"
   },
   "resources": [
@@ -43,19 +48,18 @@
       "type": "Microsoft.Network/virtualNetworks",
       "location": "[resourceGroup().location]",
       "apiVersion": "2018-11-01",
-      "dependsOn": [],
       "tags": {
         "displayName": "[variables('VnetName')]"
       },
       "properties": {
         "addressSpace": {
-          "addressPrefixes": ["[variables('ACGVnetPrefix')]"]
+          "addressPrefixes": ["[variables('VnetPrefix')]"]
         },
         "subnets": [
           {
-            "name": "[variables('ACGVnetSubnet1Name')]",
+            "name": "[variables('SubnetName')]",
             "properties": {
-              "addressPrefix": "[variables('ACGVnetSubnet1Prefix')]",
+              "addressPrefix": "[variables('SubnetPrefix')]",
               "delegations": [
                 {
                   "name": "delegation",
@@ -70,44 +74,43 @@
       }
     },
     {
-      "name": "[parameters('ACGPlanName')]",
+      "name": "[variables('ServicePlanName')]",
       "type": "Microsoft.Web/serverfarms",
       "location": "[resourceGroup().location]",
       "kind": "app,linux",
       "apiVersion": "2018-02-01",
       "sku": {
-        "name": "[parameters('ACGPlanSkuName')]"
+        "name": "[variables('EnvSize')[parameters('EnvironmentSize')].Size]"
       },
-      "dependsOn": [],
       "tags": {
-        "displayName": "ACGPlan"
+        "displayName": "[concat(parameters('AppName'),' Service Plan')]"
       },
       "properties": {
-        "name": "[parameters('ACGPlanName')]",
+        "name": "[variables('ServicePlanName')]",
         "numberOfWorkers": 1,
         "reserved": true
       }
     },
     {
-      "name": "[variables('ACGAppName')]",
+      "name": "[variables('WebAppName')]",
       "type": "Microsoft.Web/sites",
       "location": "[resourceGroup().location]",
       "apiVersion": "2018-11-01",
       "dependsOn": [
-        "[resourceId('Microsoft.Web/serverfarms', parameters('ACGPlanName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('ServicePlanName'))]",
         "[resourceId('Microsoft.Network/virtualNetworks', variables('VnetName'))]"
       ],
       "tags": {
-        "[concat('hidden-related:', resourceId('Microsoft.Web/serverfarms', parameters('ACGPlanName')))]": "Resource",
-        "displayName": "ACGApp"
+        "[concat('hidden-related:', resourceId('Microsoft.Web/serverfarms', variables('ServicePlanName')))]": "Resource",
+        "displayName": "[parameters('AppName')]"
       },
       "properties": {
-        "name": "[variables('ACGAppName')]",
+        "name": "[variables('WebAppName')]",
         "siteConfig": {
           "linuxFxVersion": "[variables('linuxFxVersion')]",
           "alwaysOn": "[variables('alwaysOn')]"
         },
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('ACGPlanName'))]"
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('ServicePlanName'))]"
       },
       "resources": [
         {
@@ -115,10 +118,10 @@
           "type": "config",
           "apiVersion": "2018-11-01",
           "dependsOn": [
-            "[resourceId('Microsoft.Web/sites', variables('ACGAppName'))]"
+            "[resourceId('Microsoft.Web/sites', variables('WebAppName'))]"
           ],
           "properties": {
-            "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('VnetName'), variables('ACGVnetSubnet1Name'))]",
+            "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('VnetName'), variables('SubnetName'))]",
             "swiftSupported": true
           }
         }
@@ -127,7 +130,7 @@
     {
       "apiVersion": "2018-11-01",
       "type": "Microsoft.Web/sites/slots",
-      "name": "[concat(variables('ACGAppName'), '/', 'stage')]",
+      "name": "[concat(variables('WebAppName'), '/', 'stage')]",
       "kind": "app",
       "location": "[resourceGroup().location]",
       "comments": "This specifies the web app stage slots.",
@@ -135,10 +138,10 @@
         "displayName": "stage"
       },
       "properties": {
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('ACGPlanName'))]"
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('ServicePlanName'))]"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Web/sites', variables('ACGAppName'))]"
+        "[resourceId('Microsoft.Web/sites', variables('WebAppName'))]"
       ]
     }
   ],
